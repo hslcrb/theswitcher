@@ -55,10 +55,60 @@ with sync_playwright() as p:
         assert page.evaluate('document.documentElement.scrollWidth') == width
         assert all(m=='GET' and u.startswith(url) for m,u in requests),requests
         assert not errors,errors
+        page.locator('#target').select_option('original')
+        page.locator('#files').set_input_files({'name':'roundtrip.woff2','mimeType':'font/woff2','buffer':data})
+        page.locator('#start:not([disabled])').wait_for()
+        page.locator('#start').click()
+        page.get_by_text('처리 완료',exact=True).wait_for(timeout=20000)
+        assert page.get_by_role('link',name='내려받기').last.get_attribute('download')=='roundtrip.ttf'
+        assert any('worker-compat.js' in u for _,u in requests)
+        assert all(m=='GET' and u.startswith(url) for m,u in requests),requests
+        assert not errors,errors
         artifact = os.environ.get("SWITCHER_ARTIFACT_DIR")
         if artifact: page.screenshot(path=str(Path(artifact)/f"preview-{width}.png"),full_page=True)
         print(width,'no external request, WOFF2 download OK, worker cancel and retry OK',flush=True)
         page.close()
+    page=browser.new_page(viewport={'width':390,'height':760})
+    page.add_init_script("""
+      Object.defineProperty(navigator,'deviceMemory',{value:2});
+      const OriginalWorker=window.Worker;
+      window.poolProof={live:0,max:0};
+      window.Worker=class extends OriginalWorker {
+        constructor(...args){
+          super(...args);
+          this.released=false;
+          window.poolProof.live++;
+          window.poolProof.max=Math.max(window.poolProof.max,window.poolProof.live);
+        }
+        terminate(){
+          if(!this.released){this.released=true;window.poolProof.live--;}
+          return super.terminate();
+        }
+      };
+    """)
+    page.goto(url,wait_until='networkidle')
+    page.evaluate("""() => {
+      const bar=document.querySelector('progress');
+      window.progressProof=[bar.value];
+      new MutationObserver(()=>window.progressProof.push(bar.value)).observe(bar,{attributes:true,attributeFilter:['value']});
+    }""")
+    with tempfile.TemporaryDirectory() as d:
+        fs=[]
+        for n in range(3):
+            path=Path(d)/f"test-{n}.ttf"
+            path.write_bytes(Path(font).read_bytes())
+            fs.append(str(path))
+        page.locator('#files').set_input_files(fs)
+        page.locator('#start:not([disabled])').wait_for()
+        page.locator('#start').click()
+        page.get_by_text('처리 완료',exact=True).wait_for(timeout=30000)
+        assert page.get_by_role('link',name='내려받기').count()==3
+    proof=page.evaluate("({pool:window.poolProof, values:window.progressProof})")
+    assert proof["pool"]=={"live":0,"max":2},proof
+    assert proof["values"][-1]==1 and proof["values"]==sorted(proof["values"]),proof
+    assert any(0<v<1 for v in proof["values"]),proof
+    print("parallel: peak two real workers, all terminated; progress monotonic and complete",proof["values"])
+    page.close()
     page=browser.new_page(viewport={'width':390,'height':760})
     page.add_init_script("Object.defineProperty(navigator, 'deviceMemory', {value: 2});")
     page.goto(url,wait_until='networkidle')
