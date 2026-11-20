@@ -6,6 +6,7 @@ TTF, OTF, WOFF 및 WOFF2를 **파일 업로드 없이 브라우저에서** 변�
 - [설계·제약·검증](docs/ARCHITECTURE.ko.md)
 - [개발기와 배포](docs/DEVLOG.ko.md)
 - [속도 개선의 실측·호환성 검증](docs/PERFORMANCE.ko.md)
+- [진행률·오류 기록](docs/DIAGNOSTICS.ko.md)
 - [기여](CONTRIBUTING.md) · [보안](SECURITY.md)
 
 ## 포맷

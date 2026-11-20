@@ -34,13 +34,19 @@
     </div>
     <section class="activity" aria-label="진행 상태">
       <div class="status-copy" role="status" aria-atomic="true"><strong id="status">대기</strong><span id="detail"></span></div>
-      <progress id="progress" value="0" max="1" aria-label="배치 변환 진행"></progress>
+      <div class="meter"><progress id="progress" value="0" max="1" aria-label="배치 변환 진행" aria-valuetext="0.0%"></progress><output id="rate" aria-live="off">0.0%</output></div>
     </section>
     <section aria-labelledby="list-title">
       <div class="queue-heading"><h2 id="list-title">파일 <span id="count">0 / 12개</span></h2><button class="quiet" id="clear" disabled>모두 비우기</button></div>
       <p class="empty" id="empty">파일 없음</p>
       <ul id="jobs" aria-label="파일별 결과"></ul>
     </section>
+    <details id="diagnostics" hidden>
+      <summary>오류 기록 (<span id="diagnostic-count">0</span>)</summary>
+      <pre id="diagnostic-body"></pre>
+      <button type="button" id="diagnostic-export">기록 받기</button>
+      <button type="button" id="diagnostic-clear">기록 지우기</button>
+    </details>
     <noscript><p>폰트 변환에는 자바스크립트가 필요합니다.</p></noscript>
   </main>
 </body>
