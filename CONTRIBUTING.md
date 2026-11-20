@@ -14,3 +14,5 @@
 
 ## 코드 기준 · Code conventions
 한영 주석은 코드가 이미 말해 주는 문장 대신 경계, 위험, 이유를 기록합니다. 페이지의 UI 스레드에 폰트 전체를 파싱하는 작업을 넣지 않습니다. 브라우저에 보내는 코드 크기는 주석을 없애는 것보다 번들 최적화로 줄입니다. / Bilingual comments explain invariants and trade-offs. Keep parsing off the UI thread and minimize shipped bundles without sacrificing code reviewability.
+
+역할·결정·릴리스 책임은 [거버넌스](GOVERNANCE.md), 상호 존중 기준은 [행동강령](CODE_OF_CONDUCT.md)을 따릅니다. / See governance and conduct for project responsibilities and community expectations.
