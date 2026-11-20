@@ -2,7 +2,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-import tempfile, os
+import tempfile, os, json
 
 root = str(Path(__file__).resolve().parents[1]/'dist')
 class Handler(SimpleHTTPRequestHandler):
@@ -90,6 +90,9 @@ with sync_playwright() as p:
     page.evaluate("""() => {
       const bar=document.querySelector('progress');
       window.progressProof=[bar.value];
+      window.stageProof=[];
+      const rows=document.querySelector("#jobs");
+      new MutationObserver(()=>window.stageProof.push(rows.innerText)).observe(rows,{childList:true,subtree:true,characterData:true});
       new MutationObserver(()=>window.progressProof.push(bar.value)).observe(bar,{attributes:true,attributeFilter:['value']});
     }""")
     with tempfile.TemporaryDirectory() as d:
@@ -103,10 +106,13 @@ with sync_playwright() as p:
         page.locator('#start').click()
         page.get_by_text('처리 완료',exact=True).wait_for(timeout=30000)
         assert page.get_by_role('link',name='내려받기').count()==3
-    proof=page.evaluate("({pool:window.poolProof, values:window.progressProof})")
+    proof=page.evaluate("({pool:window.poolProof, values:window.progressProof, stages:window.stageProof})")
     assert proof["pool"]=={"live":0,"max":2},proof
     assert proof["values"][-1]==1 and proof["values"]==sorted(proof["values"]),proof
     assert any(0<v<1 for v in proof["values"]),proof
+    assert page.locator("#rate").inner_text()=="100.0%"
+    assert any("폰트 구조 검사" in x for x in proof["stages"])
+    assert any("형식 변환 및 압축" in x for x in proof["stages"])
     print("parallel: peak two real workers, all terminated; progress monotonic and complete",proof["values"])
     page.close()
     page=browser.new_page(viewport={'width':390,'height':760})
@@ -120,3 +126,30 @@ with sync_playwright() as p:
         assert '6 MiB' in page.locator('#limits').inner_text()
         assert page.locator('#start').is_disabled()
     print('low-memory limit: file rejected before worker run')
+
+    page=browser.new_page(accept_downloads=True)
+    page.goto(url,wait_until='networkidle')
+    page.locator('#files').set_input_files([
+        {'name':'private-font.ttf','mimeType':'font/ttf','buffer':b'not-a-font'},
+        {'name':'private-original.ttf','mimeType':'font/ttf','buffer':Path(font).read_bytes()},
+    ])
+    page.locator('#target').select_option('otf')
+    page.locator('#start:not([disabled])').wait_for()
+    page.locator('#start').click()
+    page.get_by_text('처리 완료',exact=True).wait_for()
+    page.locator('#diagnostics summary').click()
+    assert 'INVALID_HEADER' in page.locator('#diagnostic-body').inner_text()
+    assert 'INVALID_OUTLINE' in page.locator('#diagnostic-body').inner_text()
+    with page.expect_download() as log: page.locator('#diagnostic-export').click()
+    with tempfile.TemporaryDirectory() as folder:
+        path=Path(folder)/'errors.json'
+        log.value.save_as(path)
+        text=path.read_text()
+        assert 'private-' not in text and 'not-a-font' not in text
+        records=json.loads(text)['records']
+        assert {x['code'] for x in records}=={'INVALID_HEADER','INVALID_OUTLINE'}
+        assert all(set(x)<=set(('id','code','stage','format','bytes','target','elapsedMs','at')) for x in records)
+        assert isinstance(next(x for x in records if x['code']=='INVALID_OUTLINE')['elapsedMs'],int)
+    page.locator('#diagnostic-clear').click()
+    assert not page.locator('#diagnostics').is_visible()
+    print('diagnostics: redacted JSON downloaded, two independent errors, local clear OK')
