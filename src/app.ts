@@ -1,3 +1,4 @@
+import { cookieString, decodePreferences, directoryPicker, downloadFailure, safeFilename, writeNewFile, type DownloadDirectory } from './downloads.ts'
 import { DiagnosticLog, FontIssue, formatPercent, safeFailure, type SafeFailure } from './diagnostics.ts'
 import { detectFont, LIMITS, type Target } from './format.ts'
 import { MIB, nextFitting, profile, progressAt, reservation } from './pool.ts'
@@ -12,13 +13,20 @@ const start=$<HTMLButtonElement>('start'), stop=$<HTMLButtonElement>('stop'), cl
 const progress=$<HTMLProgressElement>('progress'), rate=$('rate')
 const diagnosticsPanel=$<HTMLDetailsElement>('diagnostics'), diagnosticCount=$('diagnostic-count'), diagnosticBody=$('diagnostic-body')
 const log=new DiagnosticLog()
+const browserDefault=$<HTMLInputElement>('browser-default'), autoSelect=$<HTMLInputElement>('auto-select')
+const chooseFolder=$<HTMLButtonElement>('pick-folder'), saveBatch=$<HTMLButtonElement>('save-batch')
+const selectAll=$<HTMLInputElement>('select-results'), saveInfo=$('save-status')
+const getDirectory=directoryPicker(window)
+const prefs=decodePreferences(document.cookie)
+let directory:DownloadDirectory|undefined, saving=false, choosing=false
+if(!getDirectory)prefs.useBrowser=true
 let nextId=0
 const memory=(navigator as Navigator & {deviceMemory?: number}).deviceMemory
 const limits=profile(memory,navigator.hardwareConcurrency||2)
 $('limits').textContent=`파일당 ${limits.input/MIB} MiB · 최대 ${limits.slots}개 동시 변환`
 
 type State='checking'|'queued'|'running'|'done'|'error'|'cancelled'
-type Job={id:number;file:File; format:string; state:State; info:string; rawLimit:number; fraction:number; phase:string; result?:{url:string;name:string;bytes:number}; ui?:JobUI}
+type Job={id:number;file:File; format:string; state:State; info:string; rawLimit:number; fraction:number; phase:string; selected?:boolean; result?:{url:string;name:string;bytes:number;blob:Blob}; ui?:JobUI}
 type JobUI={row:HTMLElement; badge:HTMLElement; meta:HTMLElement; actions:HTMLElement}
 type Active={worker?:Worker;timer?:number;bytes:number;started:number}
 const jobs:Job[]=[]
@@ -26,7 +34,6 @@ const active=new Map<Job,Active>()
 let batch:Job[]|null=null, mode:Target='woff2', cacheBytes=0, reserved=0
 const labels={checking:'확인 중',queued:'대기',running:'변환 중',done:'완료',error:'실패',cancelled:'취소'}
 const fmt=(n:number) => n >= MIB ? `${(n/MIB).toFixed(2)} MiB` : n>=1024 ? `${(n/1024).toFixed(1)} KiB` : `${n} B`
-const baseName=(filename:string)=>filename.replace(/\.[^.]+$/,'').replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g,'_').trim().slice(0,120)||'font'
 function note(title:string,secondary:string){
   if(status.textContent!==title)status.textContent=title
   if(detail.textContent!==secondary)detail.textContent=secondary
@@ -59,10 +66,11 @@ function refresh() {
   empty.hidden=jobs.length>0
   const waiting=jobs.filter(j=>j.state==='queued').length
   start.disabled=!!batch||waiting===0||jobs.some(j=>j.state==='checking')
-  stop.disabled=!batch;clear.disabled=!!batch||!jobs.length
+  stop.disabled=!batch;clear.disabled=!!batch||saving||!jobs.length
   target.disabled=!!batch;picker.disabled=!!batch
   start.textContent=waiting?`변환 시작 · ${waiting}개`:'변환 시작'
   $('count').textContent=`${jobs.length} / ${LIMITS.batch}개`
+  refreshDownloads()
 }
 function render(j:Job) {
   if(!j.ui){
@@ -79,14 +87,22 @@ function render(j:Job) {
   meta.textContent=[j.format,fmt(j.file.size),j.state==='running'?`${j.info} · ${formatPercent(j.fraction)}`:j.info].filter(Boolean).join(' · ')
   actions.replaceChildren()
   if(j.result){
-    const a=document.createElement('a');a.className='save';a.href=j.result.url;a.download=j.result.name;a.textContent='내려받기'
-    actions.append(a)
+    const check=document.createElement('input');check.type='checkbox';check.checked=j.selected===true
+    check.setAttribute('aria-label',`${j.result.name} 선택`);check.disabled=saving
+    check.onchange=()=>{j.selected=check.checked;refreshDownloads()}
+    if(prefs.useBrowser){
+      const a=document.createElement('a');a.className='save';a.href=j.result.url;a.download=j.result.name;a.textContent='내려받기'
+      actions.append(check,a)
+    }else{
+      const b=makeButton('폴더에 저장',()=>{void downloadSelection([j])});b.className='save';b.disabled=saving||choosing
+      actions.append(check,b)
+    }
   }
   if(j.state==='cancelled'&&!batch)actions.append(makeButton('다시 대기',()=>{j.state='queued';j.info='';render(j);refresh()}))
-  if(!batch)actions.append(makeButton('제거',()=>remove(j)))
+  if(!batch&&!saving)actions.append(makeButton('제거',()=>remove(j)))
 }
 function remove(j:Job) {
-  if(batch)return
+  if(batch||saving)return
   if(j.result){URL.revokeObjectURL(j.result.url);cacheBytes-=j.result.bytes}
   const index=jobs.indexOf(j);if(index>=0)jobs.splice(index,1)
   j.ui?.row.remove();refresh()
@@ -169,7 +185,8 @@ function dispatch(j:Job,bytes:number){
       if(result.size>limits.results-cacheBytes) failure=safeFailure(null,'RESULT_LIMIT')
       else {
         cacheBytes+=result.size
-        j.result={url:URL.createObjectURL(result),name:`${baseName(j.file.name)}.${extension}`,bytes:result.size}
+        j.result={url:URL.createObjectURL(result),name:safeFilename(j.file.name,extension??''),bytes:result.size,blob:result}
+        j.selected=prefs.autoSelect
         j.info=`${extension?.toUpperCase()} · ${fmt(result.size)}`
       }
     }
@@ -231,7 +248,7 @@ stop.onclick=()=>{
   }
   finish(true)
 }
-clear.onclick=()=>{if(batch)return;for(const j of [...jobs])remove(j);setProgress(0);note('대기','')}
+clear.onclick=()=>{if(batch||saving)return;for(const j of [...jobs])remove(j);setProgress(0);note('대기','')}
 drop.ondragover=e=>{e.preventDefault();if(!batch)drop.dataset.drag='true'}
 drop.ondragleave=e=>{if(!drop.contains(e.relatedTarget as Node))delete drop.dataset.drag}
 drop.ondrop=e=>{e.preventDefault();delete drop.dataset.drag;if(e.dataTransfer)add(e.dataTransfer.files)}
@@ -243,6 +260,78 @@ window.addEventListener('pagehide',e=>{if(!e.persisted){
   for(const [j,item] of active)release(j,item)
   for(const j of jobs)if(j.result)URL.revokeObjectURL(j.result.url)
 }})
+function completed(){return jobs.filter(j=>j.result)}
+function refreshDownloads(){
+  const available=completed(), chosen=available.filter(j=>j.selected)
+  browserDefault.checked=prefs.useBrowser;browserDefault.disabled=!getDirectory||saving||choosing
+  autoSelect.checked=prefs.autoSelect;autoSelect.disabled=saving
+  chooseFolder.disabled=prefs.useBrowser||!getDirectory||saving||choosing
+  chooseFolder.textContent=directory&&!prefs.useBrowser?'폴더 다시 선택':'폴더 선택'
+  selectAll.checked=available.length>0&&chosen.length===available.length
+  selectAll.indeterminate=chosen.length>0&&chosen.length<available.length
+  selectAll.disabled=saving||!available.length
+  saveBatch.disabled=saving||choosing||!chosen.length
+  saveBatch.textContent=chosen.length?`선택 파일 받기 (${chosen.length})`:'선택 파일 받기'
+}
+function persistPreferences(){
+  document.cookie=cookieString(prefs,location.protocol==='https:')
+}
+async function pickFolder(){
+  if(prefs.useBrowser||!getDirectory||choosing)return false
+  choosing=true;refreshDownloads()
+  try{
+    directory=await getDirectory()
+    saveInfo.textContent=directory.name?`저장 폴더: ${directory.name}`:'저장 폴더 선택 완료'
+    return true
+  }catch(error){saveInfo.textContent=downloadFailure(error);return false}
+  finally{choosing=false;refreshDownloads()}
+}
+async function downloadSelection(selection:Job[]){
+  if(saving||choosing)return
+  const selected=selection.flatMap(j=>j.result?[{j,result:j.result}]:[])
+  if(!selected.length)return
+  if(prefs.useBrowser){
+    // Dispatch every selected file from the same click; leave enforcement to the browser.
+    // 한 번의 클릭에서 요청을 모두 보낸다. 저장 허용과 위치는 브라우저가 결정한다.
+    for(const {result} of selected){const a=document.createElement('a');a.href=result.url;a.download=result.name;a.click()}
+    saveInfo.textContent=`${selected.length}개 다운로드 요청 · 브라우저 확인`
+    return
+  }
+  if(!directory&&!await pickFolder())return
+  const destination=directory
+  if(!destination)return
+  saving=true;saveInfo.textContent='폴더에 저장 중';for(const j of completed())render(j);refresh()
+  const reservedNames=new Set<string>();let saved=0,failed=0,lastError=''
+  try{
+    // Limit simultaneous writes; each writes an existing result Blob without a full extra read.
+    // 동시 디스크 쓰기는 두 건으로 제한하고 변환 결과 Blob을 그대로 사용한다.
+    for(let i=0;i<selected.length;i+=2)await Promise.all(selected.slice(i,i+2).map(async ({j,result})=>{
+      try{await writeNewFile(destination,result.name,result.blob,reservedNames);saved++}
+      catch(error){
+        failed++;lastError=downloadFailure(error)
+        const name=error instanceof DOMException?error.name:''
+        const code=name==='NotAllowedError'||name==='SecurityError'?'SAVE_PERMISSION':name==='QuotaExceededError'?'SAVE_STORAGE':'SAVE_WRITE'
+        log.add({id:j.id,code,stage:'폴더 저장',format:j.format,bytes:result.bytes})
+        showLog()
+      }
+    }))
+  }finally{
+    saving=false
+    saveInfo.textContent=`저장 ${saved} · 실패 ${failed}${lastError?' · '+lastError:''}`
+    for(const j of completed())render(j);refresh()
+  }
+}
+browserDefault.onchange=()=>{
+  prefs.useBrowser=browserDefault.checked
+  if(prefs.useBrowser)directory=undefined
+  saveInfo.textContent=prefs.useBrowser?'브라우저 기본 다운로드':'저장 폴더를 선택하세요.'
+  persistPreferences();for(const j of completed())render(j);refreshDownloads()
+}
+autoSelect.onchange=()=>{prefs.autoSelect=autoSelect.checked;persistPreferences()}
+chooseFolder.onclick=()=>{void pickFolder()}
+selectAll.onchange=()=>{for(const j of completed()){j.selected=selectAll.checked;render(j)}refreshDownloads()}
+saveBatch.onclick=()=>{void downloadSelection(completed().filter(j=>j.selected))}
+if(!getDirectory)saveInfo.textContent='이 브라우저에서는 기본 다운로드만 사용할 수 있습니다.'
 $('diagnostic-clear').onclick=()=>{log.clear();showLog()}
 $('diagnostic-export').onclick=()=>{
   // Explicit, local save: metadata only, no file names, contents, persistent storage or upload.
