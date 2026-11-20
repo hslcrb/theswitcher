@@ -1,5 +1,7 @@
 # 초기 구현 개발기
 
+> 후속 변경: [속도 실측, 두 WOFF2 모드, 단순 UI와 보안 보강](PERFORMANCE.ko.md).
+
 **목표:** Convertio류 범용 변환 서비스 중 폰트 작업부터 대체한다. 배포 플랫폼은 정적 자산 전송만 맡고 변환 운영 서버를 두지 않는다. Cloudflare Pages의 GitHub 네이티브 통합을 사용하며 GitHub Actions를 사용하지 않는다.
 
 ## 시행착오와 선택
@@ -20,4 +22,4 @@
 
 ## Cloudflare
 
-Pages의 GitHub 저장소는 이 저장소 하나에 연결한다. Production branch `main`, build command `npm run build`, output `dist`, Preview 자동 배포는 끈다. 개발 서버를 띄우는 명령이나 Pages Functions는 없다. 운영 주소는 `switcher.rhee.life`다. GitHub Actions 자체의 활성/비활성 여부와 Cloudflare 네이티브 배포는 별개로 확인해야 한다.
+Pages의 GitHub 저장소는 이 저장소 하나에 연결한다. Production branch `main`, build command `npm run build`, output `dist`, Preview 자동 배포는 끈다. 개발 서버를 띄우는 명령이나 Pages Functions는 없다. 운영 주소는 `switcher.rhee.life`다. 저장소 Actions 설정에서 **Disable actions** 저장을 확인했다. Cloudflare는 별개이며 첫 운영 배포 3d9c9891의 트리거는 `github:push`였다. 커스텀 도메인 DNS·인증도 Active 상태를 확인했다.

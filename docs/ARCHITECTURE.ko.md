@@ -7,11 +7,11 @@ flowchart LR
   U["사용자 · 로컬 파일 선택"] --> Q["브라우저: 이름·최대 48바이트로 형식 확인"]
   Q --> W["전용 Web Worker 한 개 · 파일 1건"]
   W --> V["형식·테이블·확장 크기 검증"]
-  V --> C["WOFF: 네이티브 deflate / WOFF2: WASM"]
+  V --> C["WOFF: 네이티브 deflate / WOFF2: 스트리밍 Brotli 또는 WASM"]
   C --> B["검증한 결과 Blob"]
   B --> D["Object URL · 브라우저 다운로드"]
   S["Cloudflare Pages: HTML·CSS·JS만 전달"] --> Q
-  S -. "필요할 때만 정적 WASM 모듈" .-> C
+  S -. "필요할 때만 해당 정적 코덱" .-> C
   classDef ui fill:#edf1d9,stroke:#809064,color:#2a4739
   classDef engine fill:#def4ea,stroke:#387e5d,color:#204532
   class U,Q,D,S ui
@@ -35,6 +35,7 @@ flowchart LR
 
 ## 출처·라이선스
 
+- [Brotli TypeScript 구현](https://github.com/countertype/brotli-lib): 기본 WOFF2 인코더. 호환 디코딩과 최대 압축은 별도 레퍼런스 워커다.
 - [W3C WOFF](https://www.w3.org/TR/WOFF/) · [W3C WOFF 2.0](https://www.w3.org/TR/WOFF2/)
 - [woff2-encoder](https://github.com/itskyedo/woff2-encoder) · [Google WOFF2 참조 코드](https://github.com/google/woff2) · [Brotli](https://github.com/google/brotli)
 - 제3자 고지는 정적 배포물에도 포함한다. UI에는 유료 또는 별도로 수집한 글꼴이 들어가지 않는다. 예시 검증용 시스템 글꼴은 저장소에 재배포하지 않는다.
