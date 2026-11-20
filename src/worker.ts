@@ -22,7 +22,9 @@ scope.onmessage = async ({data}: MessageEvent<RequestMessage>) => {
     })
     const extension=detectFont(output).container
     const mime={ttf:'font/ttf',otf:'font/otf',woff:'font/woff',woff2:'font/woff2'}[extension]
-    post({type:'done',result:new Blob([output as Uint8Array<ArrayBuffer>],{type:mime}),extension})
+    // 검증 뒤 동일 파일이면 복사하지 않는다. / Reuse the immutable File for a verified passthrough.
+    const result=output===buffer?data.file:new Blob([output as Uint8Array<ArrayBuffer>],{type:mime})
+    post({type:'done',result,extension})
   } catch (error) {
     const value=error instanceof Error?error.message:''
     post({type:'error',message:/[가-힣]/.test(value) ? value.slice(0,180) : '파일이 손상됐거나 엔진에서 읽을 수 없는 폰트입니다.'})
