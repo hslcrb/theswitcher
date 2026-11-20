@@ -1,5 +1,7 @@
+import { DiagnosticLog, FontIssue, formatPercent, safeFailure, type SafeFailure } from './diagnostics.ts'
 import { detectFont, LIMITS, type Target } from './format.ts'
 import { MIB, nextFitting, profile, progressAt, reservation } from './pool.ts'
+import type { ProgressEvent } from './font.ts'
 import type { Reply, RequestMessage } from './worker.ts'
 import './style.css'
 
@@ -7,22 +9,49 @@ const $ = <T extends HTMLElement>(id:string) => document.getElementById(id) as T
 const picker=$<HTMLInputElement>('files'), target=$<HTMLSelectElement>('target')
 const drop=$('drop'), rows=$('jobs'), empty=$('empty'), status=$('status'), detail=$('detail')
 const start=$<HTMLButtonElement>('start'), stop=$<HTMLButtonElement>('stop'), clear=$<HTMLButtonElement>('clear')
-const progress=$<HTMLProgressElement>('progress')
+const progress=$<HTMLProgressElement>('progress'), rate=$('rate')
+const diagnosticsPanel=$<HTMLDetailsElement>('diagnostics'), diagnosticCount=$('diagnostic-count'), diagnosticBody=$('diagnostic-body')
+const log=new DiagnosticLog()
+let nextId=0
 const memory=(navigator as Navigator & {deviceMemory?: number}).deviceMemory
 const limits=profile(memory,navigator.hardwareConcurrency||2)
 $('limits').textContent=`파일당 ${limits.input/MIB} MiB · 최대 ${limits.slots}개 동시 변환`
 
 type State='checking'|'queued'|'running'|'done'|'error'|'cancelled'
-type Job={file:File; format:string; state:State; info:string; rawLimit:number; fraction:number; result?:{url:string;name:string;bytes:number}; ui?:JobUI}
+type Job={id:number;file:File; format:string; state:State; info:string; rawLimit:number; fraction:number; phase:string; result?:{url:string;name:string;bytes:number}; ui?:JobUI}
 type JobUI={row:HTMLElement; badge:HTMLElement; meta:HTMLElement; actions:HTMLElement}
-type Active={worker?:Worker;timer?:number;bytes:number}
+type Active={worker?:Worker;timer?:number;bytes:number;started:number}
 const jobs:Job[]=[]
 const active=new Map<Job,Active>()
 let batch:Job[]|null=null, mode:Target='woff2', cacheBytes=0, reserved=0
 const labels={checking:'확인 중',queued:'대기',running:'변환 중',done:'완료',error:'실패',cancelled:'취소'}
 const fmt=(n:number) => n >= MIB ? `${(n/MIB).toFixed(2)} MiB` : n>=1024 ? `${(n/1024).toFixed(1)} KiB` : `${n} B`
 const baseName=(filename:string)=>filename.replace(/\.[^.]+$/,'').replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g,'_').trim().slice(0,120)||'font'
-function note(title:string, secondary:string){status.textContent=title;detail.textContent=secondary}
+function note(title:string,secondary:string){
+  if(status.textContent!==title)status.textContent=title
+  if(detail.textContent!==secondary)detail.textContent=secondary
+}
+function setProgress(value:number){
+  progress.value=value
+  const formatted=formatPercent(progress.value)
+  if(rate.textContent!==formatted){rate.textContent=formatted;progress.setAttribute('aria-valuetext',formatted)}
+}
+function showLog(){
+  const items=log.records()
+  diagnosticsPanel.hidden=!items.length
+  diagnosticCount.textContent=String(items.length)
+  diagnosticBody.textContent=items.slice(-16).reverse().map(x=>
+    `#${x.id} · ${x.code} · ${stageLabel[x.stage as ProgressEvent['stage']]??x.stage} · ${x.format||'형식 미확인'} · ${fmt(x.bytes)}`+
+    (x.elapsedMs===undefined?'':` · ${x.elapsedMs} ms`)+
+    (x.target?` · 출력 ${x.target}`:'')+`
+${x.at}`
+  ).join('\n\n')
+}
+function recordFailure(j:Job,failure:SafeFailure,jobTarget?:Target,elapsedMs?:number){
+  j.state='error';j.info=`${failure.message} · ${failure.code} (#${j.id})`
+  log.add({id:j.id,code:failure.code,stage:j.phase,format:j.format,bytes:j.file.size,target:jobTarget,elapsedMs})
+  showLog()
+}
 function makeButton(label:string,action:()=>void) {
   const b=document.createElement('button');b.type='button';b.className='quiet';b.textContent=label;b.onclick=action;return b
 }
@@ -47,7 +76,7 @@ function render(j:Job) {
   }
   const {badge, meta, actions}=j.ui
   badge.dataset.state=j.state;badge.textContent=labels[j.state]
-  meta.textContent=[j.format,fmt(j.file.size),j.info].filter(Boolean).join(' · ')
+  meta.textContent=[j.format,fmt(j.file.size),j.state==='running'?`${j.info} · ${formatPercent(j.fraction)}`:j.info].filter(Boolean).join(' · ')
   actions.replaceChildren()
   if(j.result){
     const a=document.createElement('a');a.className='save';a.href=j.result.url;a.download=j.result.name;a.textContent='내려받기'
@@ -67,30 +96,36 @@ function add(files: FileList | File[]) {
   let skipped=0,added=0
   for(const file of files){
     if(jobs.length>=LIMITS.batch){skipped++;continue}
-    const j:Job={file,format:'',state:'checking',info:'',rawLimit:limits.raw,fraction:0}
+    const j:Job={id:++nextId,file,format:'',state:'checking',info:'',rawLimit:limits.raw,fraction:0,phase:'inspect'}
     jobs.push(j);added++;render(j)
     // UI only probes a small header; each worker validates its own complete input.
     // UI는 헤더만 보고, 전체 유효성 검사는 각 워커에서 수행한다.
     void (async()=>{
       try{
-        if(file.size<4||file.size>limits.input)throw new Error(`파일당 ${limits.input/MIB} MiB 한도 또는 빈 파일`)
+        if(file.size===0)throw new FontIssue('INPUT_EMPTY')
+        if(file.size>limits.input)throw new FontIssue('INPUT_LIMIT',`파일당 ${limits.input/MIB} MiB 입력 한도입니다.`)
+        if(file.size<4)throw new FontIssue('INVALID_HEADER')
         const head=await file.slice(0,48).arrayBuffer(), flavor=detectFont(new Uint8Array(head))
         j.format=flavor.container.toUpperCase()
         const wrapped=flavor.container.startsWith('woff')
         const raw=wrapped?new DataView(head).getUint32(16):file.size
-        if(!raw||raw>limits.raw)throw new Error(`압축 해제 한도 ${limits.raw/MIB} MiB`)
+        if(!raw)throw new FontIssue('INVALID_HEADER')
+        if(raw>limits.raw)throw new FontIssue('RAW_LIMIT',`압축 해제 한도는 ${limits.raw/MIB} MiB입니다.`)
         // WOFF2 normalization can slightly change SFNT size; still cap claims per task.
         // WOFF2의 원본 크기는 약간 달라질 수 있으므로 작업별 여유를 제한적으로만 둔다.
         j.rawLimit=Math.min(limits.raw,Math.max(raw+MIB,Math.ceil(raw*1.25)))
         j.state='queued';j.info=wrapped?`${flavor.flavor.toUpperCase()} 윤곽`:''
-      }catch(error){j.state='error';j.info=error instanceof Error?error.message:'읽을 수 없는 파일'}
+      }catch(error){if(jobs.includes(j))recordFailure(j,safeFailure(error,'FILE_READ'))}
       if(jobs.includes(j)){render(j);refresh()}
     })()
   }
   note(added?`${added}개 추가됨`:'파일 한도 도달',skipped?`${skipped}개 제외 · 파일 개수 한도`:'')
   refresh()
 }
-const stageLabel={inspect:'파일 구조 확인',decode:'압축 해제',encode:'변환',verify:'결과 검증'} as const
+const stageLabel={
+  read:'파일 읽기',inspect:'폰트 구조 검사','load-decoder':'압축 해제 모듈 로딩',
+  decode:'폰트 압축 해제','load-encoder':'변환 모듈 로딩',encode:'형식 변환 및 압축',verify:'출력 검증',
+} as const
 const compatible=(j:Job)=>j.format==='WOFF2'||mode==='woff2-compact'
 const cost=(j:Job)=>reservation(j.file.size,j.rawLimit,compatible(j))
 
@@ -109,36 +144,38 @@ function paint() {
   // Fixed run membership and monotonic per-file milestones; no indeterminate pulses.
   // 배치 구성은 고정하며 파일별 확인된 진행점만 합산한다.
   const value=batch.reduce((a,j)=>a+j.fraction,0)/batch.length
-  progress.value=Math.max(progress.value,value)
-  note(`변환 중 ${active.size}개`,`대기 ${queued} · 완료 ${done} · 실패 ${failed} · ${Math.floor(progress.value*100)}%`)
+  setProgress(Math.max(progress.value,value))
+  note(`변환 중 ${active.size}개`,`대기 ${queued} · 완료 ${done} · 실패 ${failed}`)
 }
 function finish(cancelled:boolean){
   if(!batch)return
   const current=batch
   const totals=`완료 ${current.filter(j=>j.state==='done').length} · 실패 ${current.filter(j=>j.state==='error').length}`
   batch=null
-  if(!cancelled)progress.value=1
+  if(!cancelled)setProgress(1)
   note(cancelled?'변환 중지':'처리 완료',totals)
   for(const j of jobs)render(j)
   refresh()
 }
 function dispatch(j:Job,bytes:number){
-  const item:Active={bytes}
+  const item:Active={bytes,started:performance.now()}
   active.set(j,item);reserved+=bytes
-  j.state='running';j.info='파일 읽는 중';render(j)
-  const finishJob=(message:string|undefined,result?:Blob,extension?:string)=>{
+  j.state='running';j.phase='read';j.info=stageLabel.read;render(j)
+  const finishJob=(failure:SafeFailure|undefined,result?:Blob,extension?:string)=>{
     // Stale callbacks after cancel/restart must not overwrite the current run.
     // 중지한 워커의 늦은 응답은 새 작업에 영향을 주면 안 된다.
     if(!release(j,item))return
-    if(!message&&result){
-      if(result.size>limits.results-cacheBytes) message='결과 보관 한도. 이전 결과를 저장한 뒤 제거해 주세요.'
+    if(!failure&&result){
+      if(result.size>limits.results-cacheBytes) failure=safeFailure(null,'RESULT_LIMIT')
       else {
         cacheBytes+=result.size
         j.result={url:URL.createObjectURL(result),name:`${baseName(j.file.name)}.${extension}`,bytes:result.size}
         j.info=`${extension?.toUpperCase()} · ${fmt(result.size)}`
       }
     }
-    j.state=message?'error':'done';if(message)j.info=message
+    if(!failure&&!result)failure=safeFailure(null,'INVALID_OUTPUT')
+    if(failure)recordFailure(j,failure,mode,Math.round(performance.now()-item.started))
+    else j.state='done'
     j.fraction=1;render(j);queueMicrotask(pump)
   }
   try {
@@ -149,19 +186,21 @@ function dispatch(j:Job,bytes:number){
       if(active.get(j)!==item)return
       if(data.type==='progress'){
         j.fraction=progressAt(data.value,j.fraction)
+        j.phase=data.value.stage
         const label=stageLabel[data.value.stage]
-        if(j.info!==label){j.info=label;render(j)}
+        j.info=data.value.tables?`${label} · 테이블 ${data.value.tables.done}/${data.value.tables.total}`:label
+        render(j)
         paint();return
       }
-      if(data.type==='error')finishJob(data.message)
+      if(data.type==='error')finishJob(data.failure)
       else finishJob(undefined,data.result,data.extension)
     }
-    worker.onerror=e=>{e.preventDefault();finishJob('변환 모듈을 시작하지 못했습니다.')}
-    worker.onmessageerror=()=>finishJob('결과를 전달하지 못했습니다.')
-    item.timer=window.setTimeout(()=>finishJob('한 파일의 처리 제한(45초) 초과'),45_000)
+    worker.onerror=e=>{e.preventDefault();finishJob(safeFailure(null,'WORKER_RUNTIME'))}
+    worker.onmessageerror=()=>finishJob(safeFailure(null,'WORKER_MESSAGE'))
+    item.timer=window.setTimeout(()=>finishJob(safeFailure(null,'TIMEOUT')),45_000)
     const request:RequestMessage={file:j.file,target:mode,inputBudget:limits.input,rawBudget:j.rawLimit}
-    worker.postMessage(request)
-  }catch{finishJob('브라우저가 변환 작업을 시작하지 못했습니다.')}
+    try{worker.postMessage(request)}catch{finishJob(safeFailure(null,'WORKER_MESSAGE'))}
+  }catch{finishJob(safeFailure(null,'WORKER_START'))}
 }
 function pump(){
   if(!batch)return
@@ -181,7 +220,7 @@ start.onclick=()=>{
   if(batch)return
   const queued=jobs.filter(j=>j.state==='queued')
   if(!queued.length)return
-  batch=queued;mode=target.value as Target;progress.value=0
+  batch=queued;mode=target.value as Target;setProgress(0)
   for(const j of jobs){j.fraction=0;render(j)}
   refresh();pump()
 }
@@ -192,7 +231,7 @@ stop.onclick=()=>{
   }
   finish(true)
 }
-clear.onclick=()=>{if(batch)return;for(const j of [...jobs])remove(j);progress.value=0;note('대기','')}
+clear.onclick=()=>{if(batch)return;for(const j of [...jobs])remove(j);setProgress(0);note('대기','')}
 drop.ondragover=e=>{e.preventDefault();if(!batch)drop.dataset.drag='true'}
 drop.ondragleave=e=>{if(!drop.contains(e.relatedTarget as Node))delete drop.dataset.drag}
 drop.ondrop=e=>{e.preventDefault();delete drop.dataset.drag;if(e.dataTransfer)add(e.dataTransfer.files)}
@@ -204,4 +243,12 @@ window.addEventListener('pagehide',e=>{if(!e.persisted){
   for(const [j,item] of active)release(j,item)
   for(const j of jobs)if(j.result)URL.revokeObjectURL(j.result.url)
 }})
+$('diagnostic-clear').onclick=()=>{log.clear();showLog()}
+$('diagnostic-export').onclick=()=>{
+  // Explicit, local save: metadata only, no file names, contents, persistent storage or upload.
+  // 사용자가 선택할 때만 로컬 저장한다. 폰트와 파일 이름은 내보내지 않는다.
+  const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,records:log.records()},null,2)],{type:'application/json'}))
+  const a=document.createElement('a');a.href=url;a.download='theswitcher-errors.json'
+  a.click();window.setTimeout(()=>URL.revokeObjectURL(url),3000)
+}
 refresh()

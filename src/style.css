@@ -19,3 +19,6 @@ button,.save{min-height:36px;padding:6px 10px;cursor:pointer;border:1px solid #0
 @media(max-width:480px){.page{padding-top:22px}.controls{grid-template-columns:1fr 1fr}.controls label,.controls select{grid-column:1/-1}.activity{grid-template-columns:1fr;gap:6px}.file-row{grid-template-columns:minmax(0,1fr) auto}.file-actions{grid-column:1/-1}}
 
 @media (prefers-reduced-motion:no-preference){progress::-webkit-progress-value{transition:width 120ms linear}}
+
+.meter{display:grid;grid-template-columns:minmax(0,1fr) 55px;gap:8px;align-items:center}.meter output{text-align:right;font:700 13px ui-monospace,monospace;color:var(--green)}
+#diagnostics{border-top:1px solid #000;padding-top:10px;margin-top:12px;font-size:13px}#diagnostics summary{cursor:pointer}#diagnostics pre{overflow:auto;max-height:210px;white-space:pre-wrap;overflow-wrap:anywhere}#diagnostics button{margin-right:4px}
