@@ -36,10 +36,23 @@
       <div class="status-copy" role="status" aria-atomic="true"><strong id="status">대기</strong><span id="detail"></span></div>
       <div class="meter"><progress id="progress" value="0" max="1" aria-label="배치 변환 진행" aria-valuetext="0.0%"></progress><output id="rate" aria-live="off">0.0%</output></div>
     </section>
+    <section aria-labelledby="download-title" class="download-panel">
+      <h2 id="download-title">다운로드</h2>
+      <div class="download-options">
+        <label><input id="browser-default" type="checkbox" checked> 브라우저 기본 다운로드</label>
+        <button id="pick-folder" type="button" disabled>폴더 선택</button>
+        <label><input id="auto-select" type="checkbox" checked> 완료 파일 기본 선택</label>
+      </div>
+      <p id="save-status" role="status"></p>
+    </section>
     <section aria-labelledby="list-title">
       <div class="queue-heading"><h2 id="list-title">파일 <span id="count">0 / 12개</span></h2><button class="quiet" id="clear" disabled>모두 비우기</button></div>
       <p class="empty" id="empty">파일 없음</p>
       <ul id="jobs" aria-label="파일별 결과"></ul>
+      <div class="download-actions">
+        <label><input id="select-results" type="checkbox" disabled> 완료 파일 모두 선택</label>
+        <button id="save-batch" class="primary" type="button" disabled>선택 파일 받기</button>
+      </div>
     </section>
     <details id="diagnostics" hidden>
       <summary>오류 기록 (<span id="diagnostic-count">0</span>)</summary>
@@ -47,6 +60,7 @@
       <button type="button" id="diagnostic-export">기록 받기</button>
       <button type="button" id="diagnostic-clear">기록 지우기</button>
     </details>
+    <footer class="legal-links"><a href="/privacy">개인정보처리방침</a> <a href="/terms">서비스 이용약관</a></footer>
     <noscript><p>폰트 변환에는 자바스크립트가 필요합니다.</p></noscript>
   </main>
 </body>

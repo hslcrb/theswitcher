@@ -153,3 +153,52 @@ with sync_playwright() as p:
     page.locator('#diagnostic-clear').click()
     assert not page.locator('#diagnostics').is_visible()
     print('diagnostics: redacted JSON downloaded, two independent errors, local clear OK')
+
+    page=browser.new_page(accept_downloads=True)
+    page.add_init_script("""
+      const filesInFolder=new Set(['batch-a.woff']);
+      window.savedFonts=[];
+      window.browserRequests=[];
+      const initialClick=HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click=function(){
+        if(this.download&&this.href.startsWith('blob:')){window.browserRequests.push(this.download);return;}
+        return initialClick.call(this);
+      };
+      window.showDirectoryPicker=async ({mode})=>{
+        if(mode!=='readwrite') throw new Error('expected user write mode');
+        return {name:'Test folder',async getFileHandle(name,{create}){
+          if(!create&&!filesInFolder.has(name))throw new DOMException('missing','NotFoundError');
+          if(create)filesInFolder.add(name);
+          return {async createWritable(){return {async write(blob){
+            window.savedFonts.push({name,mime:blob.type});
+          },async close(){},async abort(){}};}};
+        }};
+      };
+    """)
+    page.goto(url,wait_until='networkidle')
+    assert page.locator('#browser-default').is_checked() and page.locator('#pick-folder').is_disabled()
+    page.locator('#browser-default').uncheck()
+    page.locator('#pick-folder').click()
+    assert 'Test folder' in page.locator('#save-status').inner_text()
+    page.locator('#browser-default').check()
+    source=Path(font).read_bytes()
+    page.locator('#files').set_input_files([{'name':f'batch-{x}.ttf','mimeType':'font/ttf','buffer':source} for x in ['a','b']])
+    page.locator('#target').select_option('woff')
+    page.locator('#start:not([disabled])').wait_for()
+    page.locator('#start').click()
+    page.get_by_text('처리 완료',exact=True).wait_for()
+    assert page.locator('#select-results').is_checked()
+    page.locator('#save-batch').click()
+    assert sorted(page.evaluate("window.browserRequests"))==['batch-a.woff','batch-b.woff']
+    page.locator('#browser-default').uncheck()
+    page.locator('#pick-folder').click()
+    page.locator('#save-batch').click()
+    page.get_by_text('저장 2 · 실패 0',exact=True).wait_for()
+    assert sorted(f['name'] for f in page.evaluate("window.savedFonts"))==['batch-a-2.woff','batch-b.woff']
+    assert all(f['mime']=='font/woff' for f in page.evaluate("window.savedFonts"))
+    page.locator('#auto-select').uncheck()
+    assert page.evaluate("document.cookie")=='jjondeukCookie=v1.gingerbreadManCookie.purePickledGingerCookie'
+    page.reload(wait_until='networkidle')
+    assert not page.locator('#browser-default').is_checked() and not page.locator('#auto-select').is_checked()
+    assert page.locator('#pick-folder').inner_text()=='폴더 선택'
+    print('downloads: browser sends two independent files; folder saving and duplicate names; preferences preserved, handle not persisted')

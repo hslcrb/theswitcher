@@ -17,6 +17,9 @@ export const failureMessages={
   WORKER_START:'변환 작업자를 시작하지 못했습니다.',
   WORKER_RUNTIME:'변환 작업자에서 예기치 않은 오류가 발생했습니다.',
   WORKER_MESSAGE:'파일 또는 결과를 작업자와 주고받지 못했습니다.',
+  SAVE_PERMISSION:'선택한 폴더에 쓸 권한이 없습니다.',
+  SAVE_STORAGE:'저장 공간이 부족합니다.',
+  SAVE_WRITE:'폴더 저장에 실패했습니다.',
   TIMEOUT:'파일 하나의 처리 제한 시간(45초)을 넘겼습니다.',
   INTERNAL:'예기치 않은 오류가 발생했습니다.',
 } as const
