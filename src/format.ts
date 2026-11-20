@@ -1,5 +1,5 @@
 export type Container = 'ttf' | 'otf' | 'woff' | 'woff2'
-export type Target = Container | 'original'
+export type Target = Container | 'original' | 'woff2-compact'
 export const LIMITS = { input: 20 * 1024 ** 2, raw: 32 * 1024 ** 2, tables: 256, batch: 12 } as const
 export const TTF = 0x00010000, APPLE = 0x74727565, OTF = 0x4f54544f, WOFF = 0x774f4646, WOFF2 = 0x774f4632
 export const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength)
