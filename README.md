@@ -7,7 +7,9 @@ TTF, OTF, WOFF 및 WOFF2를 **파일 업로드 없이 브라우저에서** 변�
 - [개발기와 배포](docs/DEVLOG.ko.md)
 - [속도 개선의 실측·호환성 검증](docs/PERFORMANCE.ko.md)
 - [진행률·오류 기록](docs/DIAGNOSTICS.ko.md)
-- [기여](CONTRIBUTING.md) · [보안](SECURITY.md)
+- [다운로드·쿠키](docs/DOWNLOADS.ko.md)
+- [기여](CONTRIBUTING.md) · [거버넌스](GOVERNANCE.md) · [보안](SECURITY.md)
+- [개인정보처리방침](https://switcher.rhee.life/privacy) · [서비스 이용약관](https://switcher.rhee.life/terms)
 
 ## 포맷
 
