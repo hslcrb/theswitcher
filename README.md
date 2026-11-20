@@ -5,6 +5,8 @@ TTF, OTF, WOFF 및 WOFF2를 **파일 업로드 없이 브라우저에서** 변�
 - [정적 웹](https://switcher.rhee.life/)
 - [설계·제약·검증](docs/ARCHITECTURE.ko.md)
 - [개발기와 배포](docs/DEVLOG.ko.md)
+- [속도 개선의 실측·호환성 검증](docs/PERFORMANCE.ko.md)
+- [기여](CONTRIBUTING.md) · [보안](SECURITY.md)
 
 ## 포맷
 
@@ -26,6 +28,6 @@ npm run build
 python3 -m http.server 8080 --directory dist
 ```
 
-실제 TrueType/CFF 왕복 테스트는 `TTF_FIXTURE`, `OTF_FIXTURE` 환경변수로 각각 본인이 사용 가능한 파일을 지정합니다. 설치와 빌드 중에는 npm 패키지를 내려받지만 배포 결과물에는 API, 서버 함수, 원격 변환기, 외부 CDN 호출이 없습니다. 처음 WOFF2를 쓸 때는 이 사이트의 자체 정적 모듈을 불러옵니다.
+실제 TrueType/CFF 왕복 테스트는 `TTF_FIXTURE`, `OTF_FIXTURE` 환경변수로 각각 본인이 사용 가능한 파일을 지정합니다. 설치와 빌드 중에는 npm 패키지를 내려받지만 배포 결과물에는 API, 서버 함수, 원격 변환기, 외부 CDN 호출이 없습니다. 처음 WOFF2를 쓸 때는 이 사이트의 자체 정적 모듈을 불러옵니다. 기본은 빠른 모드이며 ‘더 작게’를 선택하면 압축 시간이 더 걸립니다.
 
 배포 대상은 `dist/`입니다. Cloudflare Pages가 GitHub `main`을 소스로 빌드하며 GitHub Actions 워크플로는 두지 않습니다.

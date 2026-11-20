@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "brotli-lib": "0.1.1",
     "woff2-encoder": "2.0.0"
   },
   "devDependencies": {

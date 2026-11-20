@@ -6,7 +6,16 @@
   Content-Security-Policy: default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
 /index.html
   Content-Security-Policy: default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
+/assets/app.js
+  Cache-Control: no-cache
+/assets/app.css
+  Cache-Control: no-cache
 /assets/worker.js
+  Cache-Control: no-cache
+  Content-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'self'; worker-src 'none'
+  Cross-Origin-Resource-Policy: same-origin
+/assets/worker-compat.js
+  Cache-Control: no-cache
   Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'self'; worker-src 'none'
   Cross-Origin-Resource-Policy: same-origin
 /assets/chunks/*

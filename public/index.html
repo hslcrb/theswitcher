@@ -3,66 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5f2e9">
-  <meta name="description" content="TTF, OTF, WOFF, WOFF2를 업로드 없이 브라우저에서 바꾸는 오픈소스 폰트 변환기.">
-  <title>THE SWITCHER · 로컬 폰트 변환기</title>
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="TTF, OTF, WOFF, WOFF2 폰트 변환기">
+  <title>폰트 변환기</title>
   <link rel="stylesheet" href="./assets/app.css">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <script type="module" src="./assets/app.js"></script>
 </head>
 <body>
-  <header class="top">
-    <a href="./" class="brand"><span class="mark" aria-hidden="true">↔</span> THE SWITCHER</a>
-    <a class="source" href="https://github.com/hslcrb/theswitcher" rel="noopener noreferrer">소스 코드 ↗</a>
-  </header>
   <main class="page">
-    <div class="intro">
-      <div class="intro-copy">
-        <p class="issue"><span></span> 글꼴 변환 도구 <i></i> 01</p>
-        <h1>폰트는 그대로.<br><em>형식만 바꾸세요.</em></h1>
-        <p>TTF·OTF·WOFF·WOFF2를 변환해요. 원본과 결과는 이 브라우저에만 있고, 파일을 서버에 보내지 않아요.</p>
-      </div>
-      <div class="specimen" aria-hidden="true">
-        <span class="sample-index">FIG. 01 &nbsp; / &nbsp; FONT FORMATS</span>
-        <span class="sample">Aa<span>↔</span>가</span>
-        <span class="sample-caption">TTF &nbsp; + &nbsp; OTF &nbsp; + &nbsp; WOFF &nbsp; + &nbsp; WOFF2</span>
-      </div>
-    </div>
+    <header class="top"><h1>폰트 변환기</h1><a href="https://github.com/hslcrb/theswitcher" rel="noopener noreferrer">GitHub ↗</a></header>
 
-    <section class="workbench" aria-labelledby="work-title">
-      <div class="section-top"><h2 id="work-title">폰트 변환</h2><span class="local"><b></b> 이 브라우저에서 실행</span></div>
-      <div class="work-grid">
-        <div class="drop" id="drop">
-          <label for="files"><span class="drop-icon" aria-hidden="true">↓</span><strong>폰트 파일 선택</strong><span>또는 파일을 여기에 끌어 놓으세요.</span></label>
-          <input id="files" type="file" multiple accept=".ttf,.otf,.woff,.woff2,.ttc,.otc,font/ttf,font/otf,font/woff,font/woff2" aria-describedby="limits">
-          <small id="limits">파일당 안전 한도를 확인하는 중</small>
-        </div>
-        <div class="controls">
-          <label for="target">출력 형식</label>
-          <select id="target">
-            <option value="woff2">WOFF2 · 현대 웹</option>
-            <option value="woff">WOFF · 호환용 웹폰트</option>
-            <option value="original">원본 윤곽 유지 · TTF 또는 OTF</option>
-            <option value="ttf">TTF · TrueType 윤곽만</option>
-            <option value="otf">OTF · CFF 계열 윤곽만</option>
-          </select>
-          <p>TTF와 CFF 기반 OTF의 곡선을 억지로 바꾸지 않아요. 설치용이 필요하면 원본 윤곽 유지를 선택하세요.</p>
-          <div class="buttons"><button class="primary" id="start" disabled>변환 시작</button><button class="quiet stop" id="stop" disabled>중지</button></div>
-        </div>
-      </div>
-      <div class="activity" role="region" aria-label="진행 상태">
-        <div class="status-copy" role="status" aria-atomic="true"><strong id="status">준비됐어요.</strong><span id="detail">폰트 파일을 추가해 주세요.</span></div>
-        <progress id="progress" value="0" max="1" aria-label="현재 파일 처리 진행"></progress>
-      </div>
-      <div class="queue-heading"><h3>파일 목록 <span id="count">0 / 12개</span></h3><button class="quiet" id="clear" disabled>모두 비우기</button></div>
-      <p class="empty" id="empty">아직 추가한 파일이 없어요.</p>
-      <ul id="jobs" aria-label="파일별 결과"></ul>
-      <noscript><p class="empty">이 도구는 파일을 브라우저에서 처리하므로 자바스크립트가 필요해요.</p></noscript>
+    <div class="drop" id="drop">
+      <label for="files">파일 선택</label>
+      <input id="files" type="file" multiple accept=".ttf,.otf,.woff,.woff2,.ttc,.otc,font/ttf,font/otf,font/woff,font/woff2" aria-describedby="limits">
+      <small id="limits">기기별 한도 확인 중</small>
+    </div>
+    <div class="controls">
+      <label for="target">출력 형식</label>
+      <select id="target">
+        <option value="woff2">WOFF2 · 빠른 변환</option>
+        <option value="woff2-compact">WOFF2 · 더 작게 (느림)</option>
+        <option value="woff">WOFF</option>
+        <option value="original">원본 윤곽 · TTF 또는 OTF</option>
+        <option value="ttf">TTF · TrueType 윤곽</option>
+        <option value="otf">OTF · CFF 계열 윤곽</option>
+      </select>
+      <button class="primary" id="start" disabled>변환 시작</button>
+      <button class="quiet" id="stop" disabled>중지</button>
+    </div>
+    <section class="activity" aria-label="진행 상태">
+      <div class="status-copy" role="status" aria-atomic="true"><strong id="status">대기</strong><span id="detail"></span></div>
+      <progress id="progress" value="0" max="1" aria-label="배치 변환 진행"></progress>
     </section>
-    <footer class="footer">
-      <span>파일 미전송 · 계정 불필요 · MIT 오픈소스</span>
-      <span>변환 및 웹 임베딩이 허용된 폰트만 사용하세요.</span>
-    </footer>
+    <section aria-labelledby="list-title">
+      <div class="queue-heading"><h2 id="list-title">파일 <span id="count">0 / 12개</span></h2><button class="quiet" id="clear" disabled>모두 비우기</button></div>
+      <p class="empty" id="empty">파일 없음</p>
+      <ul id="jobs" aria-label="파일별 결과"></ul>
+    </section>
+    <noscript><p>폰트 변환에는 자바스크립트가 필요합니다.</p></noscript>
   </main>
 </body>
 </html>

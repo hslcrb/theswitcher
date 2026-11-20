@@ -41,6 +41,11 @@ export function parseSfnt(b: Uint8Array, rawBudget: number = LIMITS.raw) {
   const tables=extract(d,count,12,16,false)
   validateRanges(tables,12+count*16,b.length,rawBudget)
   const tags=new Set(tables.map(t=>t.tag))
+  // Verify the fixed head record before accepting or allocating an output.
+  // 고정 헤더 필드를 확인한 다음 포맷을 신뢰한다.
+  const head=tables.find(t=>t.tag==='head')
+  if(!head||head.length<54||d.getUint32(head.offset+12)!==0x5f0f3cf5)
+    return fail('필수 head 테이블이 손상되었습니다.')
   if(!tags.has('head') || (flavor==='ttf' ? !tags.has('glyf')||!tags.has('loca') : !tags.has('CFF ')&&!tags.has('CFF2')))
     return fail('폰트 윤곽선과 필수 테이블이 헤더의 형식과 맞지 않습니다.')
   return {tables, flavor, marker}
@@ -80,9 +85,20 @@ function validateWoff2Directory(d: DataView, count: number, budget: number) {
   }
   const compressed=d.getUint32(20)
   if(!compressed||compressed>d.byteLength-offset) return fail('WOFF2 압축 범위가 잘못되었습니다.')
-  for(const flag of [d.getUint32(28),d.getUint32(40)]) {
-    if(flag && (flag<offset+compressed || flag>d.byteLength)) return fail('WOFF2 부가 데이터 범위가 잘못되었습니다.')
+  auxiliaryLimit(d,offset+compressed,[[d.getUint32(28),d.getUint32(32)],[d.getUint32(40),d.getUint32(44)]])
+}
+
+// Wrapper metadata and private sections are not carried forward, but must still
+// occupy valid non-overlapping file ranges. / 보존하지 않는 부가 블록도 범위를 검사한다.
+function auxiliaryLimit(d:DataView, min:number, blocks:readonly [number,number][]) {
+  let first=d.byteLength, end=min
+  for(const [offset,length] of blocks) {
+    if(!offset&&!length) continue
+    if(!offset||!length||offset%4||offset<end||offset>d.byteLength||length>d.byteLength-offset)
+      return fail('웹폰트 부가 데이터 범위가 잘못되었습니다.')
+    first=Math.min(first,offset);end=offset+length
   }
+  return first
 }
 
 export function inspectFont(b: Uint8Array, rawBudget: number = LIMITS.raw) {
@@ -94,7 +110,7 @@ export function inspectFont(b: Uint8Array, rawBudget: number = LIMITS.raw) {
     return fail('압축을 풀었을 때의 크기 또는 테이블 수가 안전 한도를 벗어났습니다.')
   if(kind.container==='woff'){
     const tables=extract(d,count,44,20,true)
-    const firstAux=[d.getUint32(24),d.getUint32(36)].filter(Boolean).reduce((n,x)=>Math.min(n,x),b.length)
+    const firstAux=auxiliaryLimit(d,44+count*20,[[d.getUint32(24),d.getUint32(28)],[d.getUint32(36),d.getUint32(40)]])
     if(validateRanges(tables,44+count*20, firstAux, rawBudget)!==raw) return fail('예상 원본 크기와 테이블이 맞지 않습니다.')
   } else {
     validateWoff2Directory(d,count,rawBudget)
@@ -114,6 +130,8 @@ function toStream(data: Uint8Array) {
   // File and WASM buffers here are non-shared. Transfer occurs only across the worker boundary.
   return new Blob([data as Uint8Array<ArrayBuffer>]).stream()
 }
+// Read into a fixed output slice; never grow to fit a corrupt stream.
+// 잘못된 압축 데이터를 따라 버퍼를 늘리지 않는다.
 async function inflateInto(input: Uint8Array, output: Uint8Array) {
   const r=toStream(input).pipeThrough(new DecompressionStream('deflate')).getReader()
   let written = 0
@@ -181,10 +199,11 @@ export async function convertFont(input: Uint8Array, target: Target, options: {r
   const rawBudget=options.rawBudget??LIMITS.raw, progress=options.progress??(()=>{})
   progress({stage:'inspect'})
   const source=inspectFont(input,rawBudget)
-  const format=target==='original'?source.flavor:target
+  const format=target==='original'?source.flavor:target==='woff2-compact'?'woff2':target
   if((format==='ttf'||format==='otf')&&source.flavor!==format)
     return fail('이 폰트의 윤곽선은 ' + source.flavor.toUpperCase() + '입니다. 원본 윤곽 또는 WOFF 형식을 선택하세요.')
-  if(format===source.container) return input
+  // 같은 컨테이너는 재인코딩하지 않는다. / Pass through, except explicitly requested compaction.
+  if(format===source.container&&target!=='woff2-compact') return input
   let sfnt=input
   if(source.container==='woff') sfnt=await unpackWoff(input,progress)
   if(source.container==='woff2') {
@@ -192,13 +211,18 @@ export async function convertFont(input: Uint8Array, target: Target, options: {r
     const {default:decompress}=await import('woff2-encoder/decompress')
     sfnt=await decompress(input)
   }
-  parseSfnt(sfnt,rawBudget)
+  const parsed=parseSfnt(sfnt,rawBudget)
   let out=sfnt
   if(format==='woff') out=await packWoff(sfnt,rawBudget,progress)
   if(format==='woff2') {
     progress({stage:'encode'})
-    const {compress}=await import('woff2-encoder')
-    out=await compress(sfnt)
+    if(target==='woff2-compact'){
+      const {compress}=await import('woff2-encoder')
+      out=await compress(sfnt)
+    } else {
+      const {encodeWoff2Fast}=await import('./woff2-fast.ts')
+      out=encodeWoff2Fast(sfnt,parsed.marker,parsed.tables)
+    }
   }
   progress({stage:'verify'})
   const result=inspectFont(out,rawBudget)
