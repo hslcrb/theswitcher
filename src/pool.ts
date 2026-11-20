@@ -23,7 +23,7 @@ export function nextFitting(reservations:readonly number[],pool:number,used:numb
 }
 
 const stages={
-  inspect:[.03,0],decode:[.1,.24],encode:[.4,.48],verify:[.95,0],
+  read:[.005,0],inspect:[.03,0],'load-decoder':[.06,0],decode:[.10,.24],'load-encoder':[.36,0],encode:[.40,.48],verify:[.95,0],
 } as const
 
 export function progressAt(event:ProgressEvent,previous:number){
