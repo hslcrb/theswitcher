@@ -68,7 +68,8 @@ function add(files: FileList | File[]) {
     if(jobs.length>=LIMITS.batch){skipped++;continue}
     const j:Job={id:++id,file,format:'',state:'checking',info:''}
     jobs.push(j);added++;render(j)
-    // Inspect only the tiny header here. Full reads and codec work run in the worker.
+    // 작은 헤더만 UI에서 읽고, 전체 작업은 워커로 분리한다.
+    // Inspect only the tiny header here; full reads and codec work stay off the UI.
     void (async()=>{
       try {
         if(file.size<4||file.size>inputBudget)throw new Error(`파일당 ${budgets[0]} MiB 한도 또는 빈 파일`)
@@ -79,25 +80,28 @@ function add(files: FileList | File[]) {
       if(jobs.includes(j)){render(j);refresh()}
     })()
   }
-  if(!active)note(added?`${added}개 추가됨`:'추가할 자리가 없어요.',skipped?`${skipped}개는 파일 개수 한도를 넘어 건너뛰었어요.`:'나갈 형식을 고른 뒤 변환을 눌러 주세요.')
+  if(!active)note(added?`${added}개 추가됨`:'파일 한도 도달',skipped?`${skipped}개 제외 · 파일 개수 한도`:'')
   refresh()
 }
+// 단일 워커만 두고 매 파일마다 메모리를 반납한다. / Retire the only worker after each file.
 function dispose() {window.clearTimeout(timer);worker?.terminate();worker=undefined}
 const stageLabel={inspect:'파일 구조 확인',decode:'웹폰트 압축 해제',encode:'지정한 형식으로 변환',verify:'출력 형식 검증'} as const
 function advance(format:Target, run:number) {
   if(run!==generation || !active) return
   dispose()
-  if(pause) { finish('변환을 멈췄어요.','남은 대기 파일은 다시 시작할 수 있어요.');return }
+  if(pause) { finish('변환 중지','대기 파일은 다시 시작할 수 있습니다.');return }
   current=jobs.find(j=>j.state==='queued')
-  if(!current){finish('대기열 처리가 끝났어요.',`완료 ${jobs.filter(j=>j.state==='done').length}개 · 실패 ${jobs.filter(j=>j.state==='error').length}개. 각 파일에서 내려받을 수 있어요.`);return}
+  if(!current){finish('처리 완료',`완료 ${jobs.filter(j=>j.state==='done').length}개 · 실패 ${jobs.filter(j=>j.state==='error').length}개`);return}
   const j=current
   j.state='running';j.info='메모리 한도 확인 중';render(j)
-  progress.removeAttribute('value');note('변환을 시작했어요.',j.file.name);refresh()
+  progress.removeAttribute('value');note('변환 중',j.file.name);refresh()
   const next=(error?:string)=>{
     if(error){j.state='error';j.info=error;render(j)}
     window.setTimeout(()=>advance(format,run),0)
   }
-  try { worker=new Worker(new URL('./worker.js',import.meta.url),{type:'module',name:'font-conversion'}) }
+  // 레퍼런스 Emscripten만 제한된 별도 진입점으로. / Only legacy codec work uses the compatibility entry.
+  const entry=j.format==='WOFF2'||format==='woff2-compact'?'./worker-compat.js':'./worker.js'
+  try { worker=new Worker(new URL(entry,import.meta.url),{type:'module',name:'font-conversion'}) }
   catch { next('이 환경에서는 변환 작업자를 시작할 수 없습니다.');return }
   worker.onmessage=({data}:MessageEvent<Reply>)=>{
     if(current!==j||j.state!=='running')return
@@ -127,10 +131,10 @@ start.onclick=()=>{if(active)return;active=true;pause=false;advance(target.value
 stop.onclick=()=>{
   if(!active)return;pause=true;generation++
   if(current?.state==='running'){current.state='cancelled';current.info='사용자가 중지함';render(current)}
-  // Terminating interrupts synchronous WebAssembly too.
-  finish('변환을 멈췄어요.','남은 대기 파일은 다시 시작할 수 있어요.')
+  // 동기 WASM도 작업자 전체를 끊으면 중지된다. / Termination interrupts synchronous WASM too.
+  finish('변환 중지','대기 파일은 다시 시작할 수 있습니다.')
 }
-clear.onclick=()=>{if(active)return;for(const j of [...jobs])remove(j);note('준비됐어요.','폰트 파일을 추가해 주세요.')}
+clear.onclick=()=>{if(active)return;for(const j of [...jobs])remove(j);note('대기','')}
 drop.ondragover=(e)=>{e.preventDefault();drop.dataset.drag='true'}
 drop.ondragleave=(e)=>{if(!drop.contains(e.relatedTarget as Node))delete drop.dataset.drag}
 drop.ondrop=(e)=>{e.preventDefault();delete drop.dataset.drag;if(e.dataTransfer)add(e.dataTransfer.files)}
